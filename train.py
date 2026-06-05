@@ -45,7 +45,7 @@ def train(model, train_loader, val_loader, optimizer, n_epochs, save_path, stats
                 loss = data_loss + effective_lambda * phys_loss
                 train_physics += phys_loss.item()
 
-                # Surrogate constraint
+                # Surrogate constraint (Removed from code)
                 if surrogate is not None:
                     surrogate.eval()
                     reconstructed = surrogate(predictions)
@@ -133,7 +133,7 @@ def main():
         save_path = "data/models/pinn_best.pth"
         stats_for_physics = stats
 
-    # Device setup
+    # Device setup (Used for running on Kaggle GPU)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
 

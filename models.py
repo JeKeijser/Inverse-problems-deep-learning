@@ -25,19 +25,19 @@ class CNN(nn.Module):
             # Block 1
             nn.Conv2d(1, 32, kernel_size=3, padding=1),
             nn.ReLU(),
-            nn.MaxPool2d(2),                            # 64x64 -> 32x32
+            nn.MaxPool2d(2),                            
             nn.Dropout(p=0.5),
 
             # Block 2
             nn.Conv2d(32, 64, kernel_size=3, padding=1),
             nn.ReLU(),
-            nn.MaxPool2d(2),                            # 32x32 -> 16x16
+            nn.MaxPool2d(2),                            
             nn.Dropout(p=0.5),
 
             # Block 3
             nn.Conv2d(64, 128, kernel_size=3, padding=1),
             nn.ReLU(),
-            nn.MaxPool2d(2),                            # 16x16 -> 8x8
+            nn.MaxPool2d(2),                            
             nn.Dropout(p=0.5),
         )
         self.regressor = nn.Sequential(
@@ -59,19 +59,19 @@ class PINN(nn.Module):
             # Block 1
             nn.Conv2d(1, 32, kernel_size=3, padding=1),
             nn.ReLU(),
-            nn.MaxPool2d(2),                            # 64x64 -> 32x32
+            nn.MaxPool2d(2),                          
             nn.Dropout(p=0.5),
 
             # Block 2
             nn.Conv2d(32, 64, kernel_size=3, padding=1),
             nn.ReLU(),
-            nn.MaxPool2d(2),                            # 32x32 -> 16x16
+            nn.MaxPool2d(2),                            
             nn.Dropout(p=0.5),
 
             # Block 3
             nn.Conv2d(64, 128, kernel_size=3, padding=1),
             nn.ReLU(),
-            nn.MaxPool2d(2),                            # 16x16 -> 8x8
+            nn.MaxPool2d(2),                           
             nn.Dropout(p=0.5),
         )
         self.regressor = nn.Sequential(
@@ -86,44 +86,8 @@ class PINN(nn.Module):
         x = self.features(x)
         return self.regressor(x)
 
-class SurrogateModel(nn.Module):
-    def __init__(self):
-        super(SurrogateModel, self).__init__()
-        
-        self.fc = nn.Sequential(
-            nn.Linear(4, 256),
-            nn.ReLU(),
-            nn.Linear(256, 128 * 8 * 8),
-            nn.ReLU(),
-        )
-        
-        self.decoder = nn.Sequential(
-            # 8x8 -> 16x16
-            nn.ConvTranspose2d(128, 64, kernel_size=4, stride=2, padding=1),
-            nn.ReLU(),
-            
-            # 16x16 -> 32x32
-            nn.ConvTranspose2d(64, 32, kernel_size=4, stride=2, padding=1),
-            nn.ReLU(),
-            
-            # 32x32 -> 64x64
-            nn.ConvTranspose2d(32, 1, kernel_size=4, stride=2, padding=1),
-        )
-    
-    def forward(self, params):
-        x = self.fc(params)
-        x = x.view(-1, 128, 8, 8)  # reshape to (batch, 128, 8, 8)
-        x = self.decoder(x)
-        return x  # (batch, 1, 64, 64)
-
 def physics_loss(predictions, stats):
-    """
-    Physics-informed penalty terms.
-    predictions: (batch, 4) in normalized [0,1] space
-                 columns: [RI, radius_x, radius_y, halo]
-    stats: dict with y_min, y_max for denormalization
-    """
-
+   
     # Denormalize predictions back to physical units
     y_min = torch.tensor(stats["y_min"], dtype=torch.float32).to(predictions.device)
     y_max = torch.tensor(stats["y_max"], dtype=torch.float32).to(predictions.device)
@@ -134,28 +98,27 @@ def physics_loss(predictions, stats):
     radius_y = phys[:, 2]
     halo     = phys[:, 3]
 
-    # --- Constraint 1: RI must be in valid physical range [1.34, 1.56] ---
+    # Constraint 1
     ri_low  = torch.relu(1.34 - RI)   # penalty if RI < 1.34
     ri_high = torch.relu(RI - 1.56)   # penalty if RI > 1.56
     ri_penalty = (ri_low + ri_high).mean()
 
-   # --- Constraint 2: RI should follow bimodal distribution ---
-    # Encourage predictions near the two modes: ~1.37 (empty) or ~1.45 (filled)
+    # Constraint 2
     dist_empty  = (RI - 1.37) ** 2
     dist_filled = (RI - 1.45) ** 2
     bimodal_penalty = torch.min(dist_empty, dist_filled).mean()
 
-    # --- Constraint 3: radii must be in valid range [100nm, 400nm] ---
+    # Constraint 3
     r_low_x  = torch.relu(100e-9 - radius_x)
     r_high_x = torch.relu(radius_x - 400e-9)
     r_low_y  = torch.relu(100e-9 - radius_y)
     r_high_y = torch.relu(radius_y - 400e-9)
     radius_penalty = (r_low_x + r_high_x + r_low_y + r_high_y).mean()
 
-    # --- Constraint 4: halo must be non-negative ---
+    # Constraint 4
     halo_penalty = torch.relu(-halo).mean()
 
-    # --- Total physics loss ---
+    # Total physics loss
     total = ri_penalty + 1.0 * bimodal_penalty + radius_penalty + halo_penalty
 
     return total
@@ -198,12 +161,3 @@ if __name__ == "__main__":
     dummy_predictions = torch.rand(32, 4)
     ploss = physics_loss(dummy_predictions, dummy_stats)
     print("Physics loss test:", ploss.item())
-    
-    # Test Surrogate
-    surrogate = SurrogateModel()
-    print("Surrogate architecture:")
-    print(surrogate)
-    dummy_params = torch.randn(32, 4)  # batch of 32 parameter vectors
-    surrogate_out = surrogate(dummy_params)
-    print("Surrogate input shape:", dummy_params.shape)
-    print("Surrogate output shape:", surrogate_out.shape)  # should be (32, 1, 64, 64)
